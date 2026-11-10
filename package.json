@@ -1,9 +1,16 @@
 {
   "name": "brainrotdep-mini-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "BrainrotDep Telegram Mini App frontend server",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=20" },
-  "dependencies": { "express": "^4.21.2" }
+  "description": "BrainrotDep Telegram Mini App with PostgreSQL persistence and protected admin tools",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
 }
