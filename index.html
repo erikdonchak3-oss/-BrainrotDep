@@ -1111,5 +1111,122 @@ setTimeout(initGameSound,0);
   render();
 })();
 </script>
+
+<script>
+;(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const initData = tg && tg.initData;
+  if (!initData) {
+    console.info('BrainrotDep: Telegram initData is missing; this session remains local-only.');
+    return;
+  }
+  const PREFIX = 'brainrotdep-';
+  let ready = false, timer = null, saving = false, queued = false, revision = 1;
+  const originalSet = Storage.prototype.setItem;
+  const originalRemove = Storage.prototype.removeItem;
+  function snapshot() {
+    const state = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(PREFIX)) {
+        try { state[key] = JSON.parse(localStorage.getItem(key)); }
+        catch (_) { state[key] = localStorage.getItem(key); }
+      }
+    }
+    return state;
+  }
+  async function api(url, options={}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {'Content-Type':'application/json','X-Telegram-Init-Data':initData,...(options.headers||{})}
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+  async function saveNow() {
+    if (!ready) return;
+    if (saving) { queued = true; return; }
+    saving = true;
+    try { const result = await api('/api/state', {method:'PUT', body:JSON.stringify({state:snapshot(),revision})}); revision = result.revision || revision; }
+    catch (e) {
+      if (e.message.includes('another session')) {
+        try {
+          const latest = await api('/api/state');
+          revision = latest.revision || revision;
+          for (let i=localStorage.length-1;i>=0;i--) {
+            const key=localStorage.key(i);
+            if(key && key.startsWith(PREFIX)) originalRemove.call(localStorage,key);
+          }
+          for(const [key,value] of Object.entries(latest.state||{})) originalSet.call(localStorage,key,typeof value==='string'?value:JSON.stringify(value));
+          const tokenEl=document.getElementById('tokens');
+          if(tokenEl) tokenEl.textContent=localStorage.getItem('brainrotdep-tokens')||'0';
+          try { if(typeof renderCollection==='function') renderCollection(); } catch(_){}
+          try { if(typeof renderProfileStats==='function') renderProfileStats(); } catch(_){}
+          try { if(typeof renderDailyReward==='function') renderDailyReward(); } catch(_){}
+        } catch (reloadError) { console.warn('BrainrotDep reload failed:', reloadError.message); }
+      } else console.warn('BrainrotDep save failed:', e.message);
+    }
+    finally {
+      saving = false;
+      if (queued) { queued = false; saveNow(); }
+    }
+  }
+  function scheduleSave() {
+    if (!ready) return;
+    clearTimeout(timer);
+    timer = setTimeout(saveNow, 650);
+  }
+  Storage.prototype.setItem = function(key, value) {
+    originalSet.call(this, key, value);
+    if (this === localStorage && String(key).startsWith(PREFIX)) scheduleSave();
+  };
+  Storage.prototype.removeItem = function(key) {
+    originalRemove.call(this, key);
+    if (this === localStorage && String(key).startsWith(PREFIX)) scheduleSave();
+  };
+  async function hydrate() {
+    try {
+      const data = await api('/api/state');
+      const remote = data.state || {};
+      revision = data.revision || 1;
+      if (Object.keys(remote).length) {
+        for (let i=localStorage.length-1;i>=0;i--) {
+          const key=localStorage.key(i);
+          if (key && key.startsWith(PREFIX)) originalRemove.call(localStorage,key);
+        }
+        for (const [key,value] of Object.entries(remote)) {
+          if (key.startsWith(PREFIX)) originalSet.call(localStorage,key,typeof value==='string'?value:JSON.stringify(value));
+        }
+        const tokenEl=document.getElementById('tokens');
+        if(tokenEl) tokenEl.textContent=localStorage.getItem('brainrotdep-tokens')||'0';
+        try { if(typeof renderCollection==='function') renderCollection(); } catch(_){}
+        try { if(typeof renderProfileStats==='function') renderProfileStats(); } catch(_){}
+        try { if(typeof renderDailyReward==='function') renderDailyReward(); } catch(_){}
+      } else {
+        const saved = await api('/api/state',{method:'PUT',body:JSON.stringify({state:snapshot(),revision})}); revision = saved.revision || revision;
+      }
+      ready = true;
+      if (data.isAdmin) {
+        const header=document.querySelector('.app header');
+        if(header && !document.getElementById('brainrotAdminLink')) {
+          const link=document.createElement('a');
+          link.id='brainrotAdminLink';link.href='/admin.html';link.textContent='🛠 Admin';
+          link.style.cssText='display:inline-block;margin-left:8px;padding:8px 10px;border-radius:10px;background:#173554;color:#d9f3ff;text-decoration:none;font-size:12px;font-weight:800';
+          header.appendChild(link);
+        }
+      }
+      console.info('BrainrotDep: player state synchronized.');
+    } catch (e) {
+      console.error('BrainrotDep synchronization failed:', e.message);
+      ready = true;
+    }
+  }
+  window.addEventListener('pagehide', saveNow);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveNow()});
+  hydrate();
+})();
+</script>
+
 </body>
 </html>
